@@ -1,0 +1,81 @@
+version: "3.8"
+volumes:
+  php-fpm-socket:
+  db-store:
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./infra/docker/php/Dockerfile
+    volumes:
+      - type: volume
+        source: php-fpm-socket
+        target: /var/run/php-fpm
+        volume:
+          nocopy: true
+      - type: bind
+        source: ./backend
+        target: /work/backend
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=${DB_NAME:-laravel_local}
+      - DB_USERNAME=${DB_USER:-phper}
+      - DB_PASSWORD=${DB_PASS:-secret}
+      - SESSION_DRIVER=${SESSION_DRIVER:-redis}
+      - SESSION_LIFETIME=${SESSION_LIFETIME:-120}
+      - REDIS_HOST=cache
+      - REDIS_PASSWORD=null
+      - REDIS_PORT=6379
+
+  web:
+    build:
+      context: .
+      dockerfile: ./infra/docker/nginx/Dockerfile
+    ports:
+      - target: 80
+        published: ${WEB_PORT:-80}
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: volume
+        source: php-fpm-socket
+        target: /var/run/php-fpm
+        volume:
+          nocopy: true
+      - type: bind
+        source: ./backend
+        target: /work/backend
+    environment:
+      - VPC_CIDR=${VPC_CIDR:-172.31.0.0/16}
+
+  db:
+    build:
+      context: .
+      dockerfile: ./infra/docker/mysql/Dockerfile
+    ports:
+      - target: 3306
+        published: ${DB_PORT:-3306}
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: volume
+        source: db-store
+        target: /var/lib/mysql
+        volume:
+          nocopy: true
+    environment:
+      - MYSQL_DATABASE=${DB_NAME:-laravel_local}
+      - MYSQL_USER=${DB_USER:-phper}
+      - MYSQL_PASSWORD=${DB_PASS:-secret}
+      - MYSQL_ROOT_PASSWORD=${DB_PASS:-secret}
+
+  cache:
+    image: redis:6.2.4-alpine
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${VPC_CIDR:-172.31.0.0/16}
